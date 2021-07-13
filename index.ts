@@ -1,7 +1,8 @@
 import { createReadStream } from 'fs';
 import { StringSplitter } from './lib/StringSpliter';
 import { getValue, getNumber, getPosition, isCondition, isIterable, setValue } from './lib/tools';
-
+import { IKeyVal, TempArgument, TemplateParts, TemplateType, TempReturn, TempVars } from './lib/types';
+export { TempReturn } from './lib/types'
 /*
 \{<anything>} ignores
 {<key> <...values>}
@@ -166,7 +167,7 @@ function runCondition(block: TemplateType, vars: TempVars, options: TemplateOpti
             return leftVal == rightVal
         } else if (condition === '~') {
             if (!isCondition(rightVal)) throw new Error(`Invalid type comparison (${getPosition(block)})`)
-            return (rightVal === 'array' && isIterable(leftVal)) || (typeof leftVal === rightVal)
+            return (rightVal === 'array' && (typeof leftVal !== 'string') && isIterable(leftVal)) || (typeof leftVal === rightVal)
         } else {
             const leftNum = getNumber(leftVal)
             const rightNum = getNumber(rightVal)
