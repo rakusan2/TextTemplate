@@ -1,0 +1,11 @@
+{= email {?~ email 'array' email {itr email}}}
+Hello{? name {+ ' ' name}},
+District 86 is now forwarding emails from the following email address{?== email.length 1 '' 'es'} to this email address
+{for:e email}  
+- {e}
+{rof}
+
+Feel free to reply to this email with any questions
+
+Webmaster Assistant
+District 86

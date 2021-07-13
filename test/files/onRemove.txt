@@ -1,0 +1,8 @@
+Hello{? name {+ ' ' name}},
+District 86 has now removed the email forwarder following email address{?== email.length 1 '' 'es'} to this email address
+
+Feel free to reply to this email with any questions
+
+Thank You
+Webmaster Assistant
+District 86

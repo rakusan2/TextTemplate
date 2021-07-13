@@ -1,0 +1,23 @@
+Hello{? name {+ ' ' name}},
+
+District 86 has just changed your forwarder
+
+{if fwdAdd}{= fwdAdd {?~ fwdAdd 'array' fwdAdd {itr fwdAdd}}}
+Email to the following email address{?== fwdAdd.length 1 '' 'es'} are now going to be forwarded to you
+{for:fwd fwdAdd}
+- {fwd}
+{rof}
+
+{fi}
+{if fwdRm}{= fwdRm {?~ fwdRm 'array' fwdRm {itr frwRm}}}
+Emails to the following email address{?== fwdRm.length 1 '' 'es'} will no longer be forwarded to you
+{for:fwd fwdRm}
+- {fwd}
+{rof}
+
+{fi}
+Feel free to reply to this email with any questions you might have
+
+Thank You
+Webmaster Assistant
+District 86

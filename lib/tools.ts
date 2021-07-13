@@ -1,3 +1,5 @@
+import { TemplateType, TempVars } from './types'
+
 export function parseNum(val: string) {
     if (val == null || val.length == 0) return
     if (/^(0x[\da-f]+|\d+)$/i.test(val)) return parseInt(val)

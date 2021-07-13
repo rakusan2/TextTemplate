@@ -1,5 +1,7 @@
-import { render, compile, MissingKeyValueError } from '..'
+import { render, compile, MissingKeyValueError, loadFile } from '..'
 import { strictEqual, throws } from 'assert'
+import { readdir } from 'fs/promises'
+import path from 'path'
 
 throws(() => render('{n}'), MissingKeyValueError, 'Missing Value')
 strictEqual(render('\\{}'), '{}', 'Test Escape')
@@ -26,6 +28,7 @@ strictEqual(render('{nope} {lol 2}', { nope: 5, lol: a => a * 10 }), '5 20')
 strictEqual(render('{lol 2}{l}{* l 4}', { lol: l => ({ l }) }), '28')
 strictEqual(render('{lol "2"}{l}{* l 4}', { lol: l => ({ l }) }), '22222')
 strictEqual(render('{len "" "a" "" "66"}', { len: (...l) => l.map(a => a.length) }, { separator: ',' }), '0,1,0,2')
+strictEqual(render('{for:ok {?~ k "array" k {itr k}}}-{ok}{rof}', { k:'dog' }), '-dog')
 
 const test = compile(`{animal 'Snail'} goes {* {+ {sound 'nope'} ' '} 2}`, { addVars: true })
 strictEqual(test({ animal: 'Dog', sound: 'bark' }), 'Dog goes bark bark ')
@@ -37,4 +40,37 @@ strictEqual(Object.keys(test.vars).length, 0)
 const testVars = compile(`{value}`, { addVars: true })
 if (testVars.vars == null) throw new Error('No Vars')
 strictEqual(Object.keys(testVars.vars).length, 1)
-strictEqual(testVars.vars['value'], true)
+strictEqual(testVars.vars['value'], true);
+
+(async () => {
+    const files = await readDirFullPath('./test/files', /\.txt$/)
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log('Testing', file.name)
+        await loadFile(file.fullPath)
+    }
+})()
+
+export async function readDirFullPath(path: string | string[], filter: RegExp): Promise<{ name: string, fullPath: string, reg: RegExpExecArray }[]>
+export async function readDirFullPath(path: string | string[], filter?: (val: string) => boolean): Promise<{ name: string, fullPath: string }[]>
+export async function readDirFullPath(paths: string | string[], filter?: RegExp | ((val: string) => boolean)) {
+    const files: { name: string, fullPath: string, reg?: RegExpExecArray }[] = []
+    if (typeof paths === 'string') paths = [paths]
+    for (let i = 0; i < paths.length; i++) {
+        const dirPath = paths[i];
+        try {
+            const res = await readdir(dirPath, 'utf8')
+            if (filter == null) files.push(...res.map(a => ({ name: a, fullPath: path.join(dirPath, a) })))
+            else if (typeof filter === 'function') files.push(...res.filter(filter).map(a => ({ name: a, fullPath: path.join(dirPath, a) })))
+            else {
+                for (let mi = 0; mi < res.length; mi++) {
+                    const name = res[mi];
+                    const reg = filter.exec(name)
+                    if (reg == null) continue
+                    files.push({ name, fullPath: path.join(dirPath, name), reg })
+                }
+            }
+        } catch { }
+    }
+    return files
+}

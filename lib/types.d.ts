@@ -1,8 +1,8 @@
-type TemplateParts = string | TemplateType
+export type TemplateParts = string | TemplateType
 
-type TempReturn = ((vars?: TempVars) => string) & { vars?: IKeyVal<boolean> }
+export type TempReturn = ((vars?: TempVars) => string) & { vars?: IKeyVal<boolean> }
 
-interface TemplateType {
+export interface TemplateType {
     pre?: TemplateType
     args: TempArgument[]
     inner?: TemplateParts[]
@@ -12,12 +12,12 @@ interface TemplateType {
     position: { lineNum: number, charNum: number }
 }
 
-type TempArgument = { val: number | string | boolean | null } | (Iterable<number> & { str: string }) | string | TemplateType
+export type TempArgument = { val: number | string | boolean | null } | (Iterable<number> & { str: string }) | string | TemplateType
 
-type IKeyVal<T> = { [key: string]: T }
+export type IKeyVal<T> = { [key: string]: T }
 
 
-interface TempVars {
+export interface TempVars {
     [key: string]: number |
     string |
     boolean |
