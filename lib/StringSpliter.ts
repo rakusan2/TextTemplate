@@ -1,4 +1,5 @@
 import { parseNum, getRange, checkArgMin } from './tools'
+import { TemplateParts, TemplateType } from './types'
 
 export class StringSplitter {
     static get(str: string) {
@@ -12,22 +13,28 @@ export class StringSplitter {
         isQuote: '',
         arg: '',
         lineNum: 1,
-        charNum: 0
+        charNum: 0,
+        ignoreSpace: false
     }
     res: TemplateParts[] = []
     add(str: string) {
         let start = 0
-        let { foundBlock, foundEscape, isQuote, arg, lineNum, charNum } = this.last
+        let { foundBlock, foundEscape, isQuote, arg, lineNum, charNum, ignoreSpace } = this.last
         let i = start
         while (true) {
             if (!foundBlock) for (; i < str.length; i++) {
                 const char = str[i];
                 if (char === '\n') {
+                    if (ignoreSpace) {
+                        ignoreSpace = false
+                        start = i + 1
+                    }
                     charNum = 0
                     lineNum++
                 } else {
                     charNum++
                 }
+                if (ignoreSpace && /[^\s]/.test(char)) ignoreSpace = false
                 if (foundEscape) {
                     foundEscape = false
                 } else if (char === '{') {
@@ -50,10 +57,11 @@ export class StringSplitter {
                 this.last.arg = arg
                 this.last.lineNum = lineNum
                 this.last.charNum = charNum
+                this.last.ignoreSpace = ignoreSpace
                 return
             }
             if (foundBlock == null) throw new Error(`Invalid foundBlock`)
-
+            ignoreSpace = onEmptyLine(this.res)
             for (; i < str.length; i++) {
                 const char = str[i];
 
@@ -125,6 +133,7 @@ export class StringSplitter {
                 this.last.isQuote = isQuote
                 this.last.lineNum = lineNum
                 this.last.charNum = charNum
+                this.last.ignoreSpace = ignoreSpace
                 return
             }
         }
@@ -260,4 +269,18 @@ function toControlGroups(arr: TemplateParts[]): TemplateParts[] {
         }
     }
     return res
+}
+
+function onEmptyLine(arr: TemplateParts[]) {
+    if (arr.length === 0) return true
+    for (let i = arr.length - 1; i >= 0; i--) {
+        const el = arr[i]
+        if (typeof el !== 'string') continue
+        for (let i = el.length - 1; i >= 0; i--) {
+            const char = el[i]
+            if (char === '\n' || char === '\b' || char === '\r') return true
+            if (char !== ' ' && char !== '\t') return false
+        }
+    }
+    return true
 }
