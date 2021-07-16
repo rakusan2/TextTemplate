@@ -1,5 +1,5 @@
 import { render, compile, MissingKeyValueError, loadFile } from '..'
-import { strictEqual, throws } from 'assert'
+import { strictEqual, throws, doesNotReject } from 'assert'
 import { readdir } from 'fs/promises'
 import path from 'path'
 
@@ -28,28 +28,34 @@ strictEqual(render('{nope} {lol 2}', { nope: 5, lol: a => a * 10 }), '5 20')
 strictEqual(render('{lol 2}{l}{* l 4}', { lol: l => ({ l }) }), '28')
 strictEqual(render('{lol "2"}{l}{* l 4}', { lol: l => ({ l }) }), '22222')
 strictEqual(render('{len "" "a" "" "66"}', { len: (...l) => l.map(a => a.length) }, { separator: ',' }), '0,1,0,2')
-strictEqual(render('{for:ok {?~ k "array" k {itr k}}}-{ok}{rof}', { k:'dog' }), '-dog')
+strictEqual(render('{for:ok {?~ k "array" k {itr k}}}-{ok}{rof}', { k: 'dog' }), '-dog')
+strictEqual(render('{= k {?~ k "array" k {itr k}}}{for:ok k}-{ok}{rof}', { k: 'dog' }), '-dog')
+strictEqual(render('{a[].length}', { a: ['val', 'door', 'no', 'render'] }), '3, 4, 2, 6')
+strictEqual(render('{a[1:2:].length}', { a: ['val', 'door', 'no', 'render'] }), '4, 6')
+strictEqual(render('{a[:-1:]}', { a: [1,2,3,4] }), '4, 3, 2, 1')
 
 const test = compile(`{animal 'Snail'} goes {* {+ {sound 'nope'} ' '} 2}`, { addVars: true })
 strictEqual(test({ animal: 'Dog', sound: 'bark' }), 'Dog goes bark bark ')
 strictEqual(test({ animal: 'Cat', sound: 'mew' }), 'Cat goes mew mew ')
 strictEqual(test(), 'Snail goes nope nope ')
+
 if (test.vars == null) throw new Error('No Vars')
 strictEqual(Object.keys(test.vars).length, 0)
 
 const testVars = compile(`{value}`, { addVars: true })
 if (testVars.vars == null) throw new Error('No Vars')
 strictEqual(Object.keys(testVars.vars).length, 1)
-strictEqual(testVars.vars['value'], true);
+strictEqual(testVars.vars['value'], true)
 
-(async () => {
+doesNotReject(async () => {
     const files = await readDirFullPath('./test/files', /\.txt$/)
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         console.log('Testing', file.name)
-        await loadFile(file.fullPath)
+        const fun = await loadFile(file.fullPath)
+        fun({ name: 'dog', email: 'cat', fwdAdd: 'add', fwdRm: 'rm' })
     }
-})()
+}, 'Test Files')
 
 export async function readDirFullPath(path: string | string[], filter: RegExp): Promise<{ name: string, fullPath: string, reg: RegExpExecArray }[]>
 export async function readDirFullPath(path: string | string[], filter?: (val: string) => boolean): Promise<{ name: string, fullPath: string }[]>

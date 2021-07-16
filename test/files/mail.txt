@@ -9,7 +9,7 @@ Email to the following email address{?== fwdAdd.length 1 '' 'es'} are now going 
 {rof}
 
 {fi}
-{if fwdRm}{= fwdRm {?~ fwdRm 'array' fwdRm {itr frwRm}}}
+{if fwdRm}{= fwdRm {?~ fwdRm 'array' fwdRm {itr fwdRm}}}
 Emails to the following email address{?== fwdRm.length 1 '' 'es'} will no longer be forwarded to you
 {for:fwd fwdRm}
 - {fwd}

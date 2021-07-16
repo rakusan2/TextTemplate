@@ -1,8 +1,12 @@
 import { createReadStream } from 'fs';
+import { Readable } from 'stream'
+import { MissingKeyValueError } from './lib/error';
 import { StringSplitter } from './lib/StringSpliter';
-import { getValue, getNumber, getPosition, isCondition, isIterable, setValue } from './lib/tools';
+import { getNumber, getPosition, isCondition, isIterable, ArrToItr } from './lib/tools';
 import { IKeyVal, TempArgument, TemplateParts, TemplateType, TempReturn, TempVars } from './lib/types';
+import { PathObj } from './pathInterpreter';
 export { TempReturn } from './lib/types'
+export * from './lib/error'
 /*
 \{<anything>} ignores
 {<key> <...values>}
@@ -29,7 +33,7 @@ export { TempReturn } from './lib/types'
  */
 export function loadFile(path: string, options?: TemplateOptions) {
     return new Promise<TempReturn>((res, rej) => {
-        const ss = new StringSplitter()
+        const ss = new StringSplitter(options?.filePath ?? path)
         createReadStream(path, 'utf8')
             .on('error', rej)
             .on('data', (data: string) => {
@@ -42,8 +46,18 @@ export function loadFile(path: string, options?: TemplateOptions) {
 
 }
 
+export function compileStream(stream: Readable, options?: TemplateOptions) {
+    return new Promise<TempReturn>((res, rej) => {
+        const ss = new StringSplitter(options?.filePath)
+        stream.on('data', data => {
+            ss.add(Buffer.isBuffer(data) ? data.toString('utf8') : data)
+        }).on('error', rej)
+            .on('close', () => res(createReturn(ss.finish())))
+    })
+}
+
 export function compile(val: string, options?: TemplateOptions) {
-    return createReturn(StringSplitter.get(val), options)
+    return createReturn(StringSplitter.get(val, options?.filePath), options)
 }
 
 export function render(file: string, vars?: TempVars, options?: TemplateOptions) {
@@ -79,6 +93,10 @@ export interface TemplateOptions {
     setFunctionThis?: boolean
     /** Add vars property to return of compile */
     addVars?: boolean
+    /** 
+     * Adds file path to position info of Errors
+     */
+    filePath?: string
 }
 
 function createReturn(arr: TemplateParts[], options: TemplateOptions = {}) {
@@ -114,22 +132,23 @@ function getVarKeys(args: TempArgument[], setKeys: Set<string>, getKeys: Set<str
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
-        if (typeof arg === 'string') {
+        if (arg instanceof PathObj) {
+            const key = arg.getFirstKey()
             if (i === 0) {
-                if (predefined.test(arg)) {
-                    if (arg[0] === '=') {
+                if (predefined.test(key)) {
+                    if (key[0] === '=') {
                         set1 = true
                     }
-                    if (arg !== 'itr') skip1 = true
+                    if (key !== 'itr') skip1 = true
                 } else {
-                    if (args.length === 1 && !setKeys.has(arg)) getKeys.add(arg)
+                    if (args.length === 1 && !setKeys.has(key)) getKeys.add(key)
                 }
             }
             else if (i !== 1 || !skip1) {
-                if (!setKeys.has(arg)) getKeys.add(arg)
+                if (!setKeys.has(key)) getKeys.add(key)
             }
             if (i !== 1 || set1) {
-                keysToSet.push(arg)
+                keysToSet.push(key)
             }
         }
         else if ('args' in arg) {
@@ -157,8 +176,8 @@ function runCondition(block: TemplateType, vars: TempVars, options: TemplateOpti
     const condition = block.condition
     if (condition == null) {
         if (left == null) throw new Error(`Invalid Condition (${getPosition(block)})`)
-        const setKey = getArgumentStr(left, vars, options)
-        return getValue(setKey, vars) != null
+        const setKey = getArgumentPath(left, vars, options)
+        return setKey.getFrom(vars) != null
     } else {
         if (left == null || right == null) throw new Error(`Invalid Condition (${getPosition(block)})`)
         const leftVal = getArgumentVal(left, vars, options)
@@ -181,27 +200,28 @@ function runCondition(block: TemplateType, vars: TempVars, options: TemplateOpti
 
 function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions): any {
     if (block.args.length === 0) return null
-    let [key, ...args] = block.args
-    if (typeof key !== 'string') {
-        if (isIterable(key)) return key
-        if ('val' in key) return key.val
+    let [arg0, ...args] = block.args
+    if (!(arg0 instanceof PathObj)) {
+        if (isIterable(arg0)) return arg0
+        if ('val' in arg0) return arg0.val
         if (options.allowKeyBlocks !== true) {
-            console.warn(`Keys can not have Blocks. Use options.allowKeyBlocks to change this (${getPosition(key)})`)
+            console.warn(`Keys can not have Blocks. Use options.allowKeyBlocks to change this (${getPosition(arg0)})`)
             return null
         }
-        if (key.args.length <= 0) return null
-        const res = runBlock(key, vars, options)
-        if (typeof res === 'string') key = res
+        if (arg0.args.length <= 0) return null
+        const res = runBlock(arg0, vars, options)
+        if (typeof res === 'string') arg0 = new PathObj(res, arg0.position)
         else if (typeof res === 'function') {
-            res(...args.map(a => (typeof a === 'string') ? vars[a] : isIterable(a) ? a : 'val' in a ? a.val : runBlock(a, vars, options)))
+            res(...args.map(a => (a instanceof PathObj) ? a.getFrom(vars) : isIterable(a) ? a : 'val' in a ? a.val : runBlock(a, vars, options)))
             return
         } else {
             if (args.length > 0) {
-                console.warn(`Key is a value. Ignoring Arguments (${getPosition(key)})`)
+                console.warn(`Key is a value. Ignoring Arguments (${getPosition(arg0)})`)
             }
             return res
         }
     }
+    const key = arg0.getFirstKey()
     let reg: RegExpExecArray | null
     if (key === 'if') {
         if (runCondition(block, vars, options)) {
@@ -226,12 +246,15 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
             for (const val of itr) {
                 i++
                 if (max > 0 && i > max) break
-                if (block.name != null) setValue(block.name, vars, val)
+                if (block.name != null) block.name.setTo(vars, val)
+                if (typeof val === 'object') {
+                    console.log('OBJ')
+                }
                 str += joinParts(block.inner, vars, options)
             }
             return str
         } else {
-            if (block.name != null) setValue(block.name, vars, itr)
+            if (block.name != null) block.name.setTo(vars, itr)
             return joinParts(block.inner, vars, options)
         }
     } else if (key === '?') {
@@ -258,27 +281,26 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
         if (args.length <= 1) return null
         const arg0 = args.shift()
         if (arg0 == null) return null
-        const setKey = getArgumentStr(arg0, vars, options)
+        const setKey = getArgumentPath(arg0, vars, options)
         if (key.length === 2) {
-            const val = getValue(setKey, vars)
+            const val = setKey.getFrom(vars)
             if (val != null) return null
         }
-        const argVals = args.map(a => getArgumentVal(a, vars, options))
-        if (argVals.length === 0) return null
-        if (argVals.length === 1) setValue(setKey, vars, argVals[0])
-        else setValue(setKey, vars, argVals)
+        if (args.length === 0) return null
+        if (args.length === 1) setKey.setTo(vars, getArgumentVal(args[0], vars, options))
+        else setKey.setTo(vars, args.map(a => getArgumentVal(a, vars, options)))
         return null
     } else if ((reg = /^(?:=\??)?(\+|-|\/|\*|%)$/.exec(key)) != null) {
         if (args.length === 0) return null
         const opt = reg[1]
-        let setKey: any = null
+        let setKey: PathObj | null = null
         if (key[0] === '=') {
             if (args.length <= 2) return null
             const arg0 = args.shift()
             if (arg0 == null) return null
-            setKey = getArgumentStr(arg0, vars, options)
+            setKey = getArgumentPath(arg0, vars, options)
             if (key[1] === '?') {
-                const val = getValue(setKey, vars)
+                const val = setKey.getFrom(vars)
                 if (val != null) return
             }
         }
@@ -316,19 +338,19 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
                 }
             }
         }
-        if (typeof setKey === 'string') {
-            setValue(setKey, vars, res)
+        if (setKey != null) {
+            setKey.setTo(vars, res)
         } else return res
         return null
     } else {
-        const val = getValue(key, vars)
+        const val = arg0.getFrom(vars)
         if (val == null) {
             if (options.defaultFunction != null) return options.defaultFunction(key, args.map(a => getArgumentVal(a, vars, options)))
             if (args.length > 0) {
                 if (args.length === 1) return getArgumentVal(args[0], vars, options)
                 return args.map(a => getArgumentVal(a, vars, options))
             }
-            if (options.throwOnMissing !== false) throw new MissingKeyValueError(key)
+            if (options.throwOnMissing !== false) throw new MissingKeyValueError(arg0)
             return null
         }
         if (typeof val === 'function') {
@@ -344,20 +366,14 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
 
 function getArgumentVal(arg: TempArgument, vars: TempVars, options: TemplateOptions) {
     if (arg == null) return null
-    if (typeof arg === 'string') {
-        const res = getValue(arg, vars)
+    if (arg instanceof PathObj) {
+        const res = arg.getFrom(vars)
         if (typeof res === 'undefined' && options.throwOnMissing) throw new MissingKeyValueError(arg)
         return res
     }
     if (isIterable(arg)) return arg
     if ('val' in arg) return arg.val
     return runBlock(arg, vars, options)
-}
-
-export class MissingKeyValueError extends Error {
-    constructor(public key: string, title?: string) {
-        super(title ?? `Missing Key "${key}"`)
-    }
 }
 
 function runBlockFin(block: TemplateType, vars: TempVars, options: TemplateOptions): string {
@@ -380,26 +396,29 @@ function runBlockFin(block: TemplateType, vars: TempVars, options: TemplateOptio
 }
 
 export function getArgIterable(args: TempArgument[], vars: TempVars, options: TemplateOptions) {
-    return {
-        length: args.length,
-        *[Symbol.iterator]() {
-            for (let i = 0; i < args.length; i++) {
-                const arg = args[i];
-                yield getArgumentVal(arg, vars, options)
-            }
+    const instance = { ...vars }
+    const arr = new Array(args.length)
+    return new ArrToItr(args.length, i => {
+        const item = arr[i]
+        if (typeof item !== 'undefined') return item
+        const arg = args[i]
+        const temp = arr[i] = getArgumentVal(arg, instance, options)
+        if ((typeof arg === 'string') && (typeof temp === 'undefined') && options.throwOnMissing !== false) {
+            throw new MissingKeyValueError(new PathObj(arg, { charNum: -1, lineNum: -1 }))
         }
-    }
+        return temp
+    })
 }
 
-export function getArgumentStr(arg: TempArgument, vars: TempVars, options: TemplateOptions) {
-    if (typeof arg === 'string') return arg
+export function getArgumentPath(arg: TempArgument, vars: TempVars, options: TemplateOptions) {
+    if (arg instanceof PathObj) return arg
     if ('val' in arg) {
-        if (typeof arg.val === 'string') return arg.val
-        if (typeof arg.val === 'number') return arg.val.toFixed(0)
+        if (typeof arg.val === 'string') return new PathObj(arg.val, { lineNum: -1, charNum: -1 })
+        if (typeof arg.val === 'number') return new PathObj(arg.val.toFixed(0), { lineNum: -1, charNum: -1 })
     }
     if ('args' in arg) {
         const res = runBlock(arg, vars, options)
-        if (typeof res === 'string') return res
+        if (typeof res === 'string') return new PathObj(res, arg.position)
         throw new Error(`Block returned invalid key (${getPosition(arg)})`)
     }
     throw new Error(`Invalid key. Got ${('val' in arg) ? arg.val : arg.str}`)

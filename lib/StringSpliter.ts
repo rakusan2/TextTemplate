@@ -1,11 +1,18 @@
-import { parseNum, getRange, checkArgMin } from './tools'
-import { TemplateParts, TemplateType } from './types'
+import { PathObj } from '../pathInterpreter'
+import { parseNum, getRange, checkArgMin, isInvisibleChar } from './tools'
+import { TemplateParts, TemplatePosition, TemplateType } from './types'
 
 export class StringSplitter {
-    static get(str: string) {
-        const ss = new StringSplitter()
+    static get(str: string, fileName?: string) {
+        const ss = new StringSplitter(fileName)
         ss.add(str)
         return ss.finish()
+    }
+    file?: {
+        name: string
+    }
+    constructor(fileName?: string) {
+        if (fileName != null) this.file = { name: fileName }
     }
     last = {
         foundBlock: undefined as undefined | TemplateType,
@@ -18,6 +25,7 @@ export class StringSplitter {
     }
     res: TemplateParts[] = []
     add(str: string) {
+        const file = this.file
         let start = 0
         let { foundBlock, foundEscape, isQuote, arg, lineNum, charNum, ignoreSpace } = this.last
         let i = start
@@ -29,9 +37,9 @@ export class StringSplitter {
                         ignoreSpace = false
                         start = i + 1
                     }
-                    charNum = 0
+                    charNum = 1
                     lineNum++
-                } else {
+                } else if (!isInvisibleChar(char)) {
                     charNum++
                 }
                 if (ignoreSpace && /[^\s]/.test(char)) ignoreSpace = false
@@ -39,7 +47,7 @@ export class StringSplitter {
                     foundEscape = false
                 } else if (char === '{') {
                     if (i > start) this.res.push(str.slice(start, i))
-                    foundBlock = { args: [], position: { lineNum, charNum } }
+                    foundBlock = { args: [], position: { lineNum, charNum, file } }
                     i++
                     start = i
                     arg = ''
@@ -68,7 +76,7 @@ export class StringSplitter {
                 if (char === '\n') {
                     charNum = 1
                     lineNum++
-                } else {
+                } else if (!isInvisibleChar(char)) {
                     charNum++
                 }
                 if (foundEscape) {
@@ -89,21 +97,21 @@ export class StringSplitter {
                     }
                 } else if (char === '"' || char === "'") {
                     if (arg.length > 0) {
-                        foundBlock.args.push(convertArg(arg))
+                        foundBlock.args.push(convertArg(arg, { lineNum, charNum: charNum - arg.length, file }))
                         arg = ''
                     }
                     isQuote = char
                 } else if (char === '{') {
                     if (arg.length > 0) {
-                        foundBlock.args.push(convertArg(arg))
+                        foundBlock.args.push(convertArg(arg, { lineNum, charNum: charNum - arg.length, file }))
                         arg = ''
                     }
-                    const temp: TemplateType = { args: [], pre: foundBlock, position: { lineNum, charNum } }
+                    const temp: TemplateType = { args: [], pre: foundBlock, position: { lineNum, charNum, file } }
                     foundBlock.args.push(temp)
                     foundBlock = temp
                 } else if (char === '}') {
                     if (arg.length > 0) {
-                        foundBlock.args.push(convertArg(arg))
+                        foundBlock.args.push(convertArg(arg, { lineNum, charNum: charNum - arg.length, file }))
                         arg = ''
                     }
 
@@ -118,7 +126,7 @@ export class StringSplitter {
                     }
                 } else if (char === ' ' || char === '\n' || char === '\t') {
                     if (arg.length > 0) {
-                        foundBlock.args.push(convertArg(arg))
+                        foundBlock.args.push(convertArg(arg, { lineNum, charNum: charNum - arg.length + 1, file }))
                         arg = ''
                     }
                 } else {
@@ -141,8 +149,8 @@ export class StringSplitter {
     finish() {
         const { foundBlock, arg, isQuote } = this.last
         if (foundBlock == null) return toControlGroups(this.res)
-        if (isQuote.length > 0) foundBlock.args.push(arg)
-        else if (arg.length > 0) foundBlock.args.push(convertArg(arg))
+        if (isQuote.length > 0) foundBlock.args.push({ val: arg })
+        else if (arg.length > 0) foundBlock.args.push(convertArg(arg, { lineNum: this.last.lineNum, charNum: this.last.charNum - arg.length, file: this.file }))
         let last = foundBlock
         let temp = last.pre
         while (temp != null) {
@@ -155,34 +163,37 @@ export class StringSplitter {
     }
 }
 
-function convertArg(val: string): string | { val: string | number | boolean | null } | (Iterable<number> & { str: string }) {
+function convertArg(val: string, position: TemplatePosition): PathObj | { val: string | number | boolean | null } | (Iterable<number> & { str: string, length: number }) {
     val = val.trim()
     if (val === 'false') return { val: false }
     if (val === 'true') return { val: true }
     if (val === 'null') return { val: null }
     const isNum = parseNum(val)
     if (isNum != null) return { val: isNum }
-    const isRange = /^(\d+)(?::(\d+))?:(\d+)$/.exec(val)
+    const isRange = /^([-+]?\d+)(?::([-+]?\d+))?:([-+]?\d+)$/.exec(val)
     if (isRange != null) {
         const start = parseNum(isRange[1])
         const inc = parseNum(isRange[2])
         const end = parseNum(isRange[3])
-        if (start == null || end == null) return val
-        return { str: val, [Symbol.iterator]: getRange(start, end, inc) }
+        if (start == null || end == null) return new PathObj(val, position)
+        const length = Math.floor((end - start) / (inc ?? (end >= start) ? 1 : -1))
+        return { str: val, [Symbol.iterator]: getRange(start, end, inc), length: Math.max(length, 1) }
     }
-    return val
+    return new PathObj(val, position)
 }
 
 function removeKeyExtra(val: TemplateType) {
     if (val.args.length === 0) return
-    const key = val.args[0]
-    if (typeof key !== 'string') return
+    const arg0 = val.args[0]
+    if (!(arg0 instanceof PathObj)) return
+    const key = arg0.path
+
     const extra = /^(if|for|else|\?)(==|<=?|>=?|~)?(?::([^\d\s][^\s]*))?$/.exec(key)
     if (extra != null) {
         const temp = extra[1]
-        val.args[0] = temp
+        arg0.setSimplePath(temp)
         val.condition = extra[2]
-        val.name = extra[3]
+        val.name = (extra[3] == null || extra[3].length === 0) ? void 0 : new PathObj(extra[3], val.position)
         if (temp === 'if' || temp === 'for') checkArgMin(val, 2, temp)
         else if (temp === '?') checkArgMin(val, val.condition == null ? 3 : 4, temp)
     }
@@ -224,8 +235,8 @@ function toControlGroups(arr: TemplateParts[]): TemplateParts[] {
             if (key === 'else') {
                 close('if', true)
                 if (working == null || working.key !== 'if') {
-                    const { lineNum, charNum } = working.el.position
-                    console.error(`No "if". Removing "else" (${lineNum}:${charNum})`)
+                    const { lineNum, charNum, file } = working.el.position
+                    console.error(`No "if". Removing "else" (${file != null ? file.name + ':' : ''}${lineNum}:${charNum})`)
                     return
                 } else {
                     if (working.el.else == null) working.el.else = [el]
@@ -252,10 +263,13 @@ function toControlGroups(arr: TemplateParts[]): TemplateParts[] {
         if (typeof el === 'string') {
             add(el)
         } else {
-            const key = el.args[0]
-            if (typeof key !== 'string') {
+            const arg0 = el.args[0]
+            if (!(arg0 instanceof PathObj)) {
                 add(el)
-            } else if (key === 'for') {
+                continue
+            }
+            const key = arg0.getFirstKey()
+            if (key === 'for') {
                 open('for', el)
             } else if (key === 'rof') {
                 close('for')

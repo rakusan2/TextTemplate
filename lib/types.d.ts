@@ -1,6 +1,8 @@
+import { PathObj } from './tools'
 export type TemplateParts = string | TemplateType
 
 export type TempReturn = ((vars?: TempVars) => string) & { vars?: IKeyVal<boolean> }
+
 
 export interface TemplateType {
     pre?: TemplateType
@@ -8,11 +10,19 @@ export interface TemplateType {
     inner?: TemplateParts[]
     else?: TemplateType[]
     condition?: string
-    name?: string
-    position: { lineNum: number, charNum: number }
+    name?: PathObj
+    position: TemplatePosition
 }
 
-export type TempArgument = { val: number | string | boolean | null } | (Iterable<number> & { str: string }) | string | TemplateType
+export interface TemplatePosition {
+    lineNum: number
+    charNum: number
+    file?: {
+        name: string
+    }
+}
+
+export type TempArgument = { val: number | string | boolean | null } | (Iterable<number> & { length: number, str: string }) | PathObj | TemplateType
 
 export type IKeyVal<T> = { [key: string]: T }
 

@@ -1,11 +1,11 @@
-import { TemplateType, TempVars } from './types'
+import { TemplateType } from './types'
 
 export function parseNum(val: string) {
     if (val == null || val.length == 0) return
-    if (/^(0x[\da-f]+|\d+)$/i.test(val)) return parseInt(val)
-    const isBin = /^0b([01])+$/i.exec(val)
-    if (isBin != null) return parseInt(isBin[1])
-    if (/^\d+\.\d+$/.test(val)) return parseFloat(val)
+    if (/^[-+]?(0x[\da-f]+|\d+)$/i.test(val)) return parseInt(val)
+    const isBin = /^([-+]?)0b([01])+$/i.exec(val)
+    if (isBin != null) return parseInt(isBin[1] + isBin[2], 2)
+    if (/^[-+]?\d+\.\d+$/.test(val)) return parseFloat(val)
 }
 
 export function getNumber(val: any) {
@@ -17,9 +17,16 @@ export function getNumber(val: any) {
     throw new Error('Cannon parse to number')
 }
 
-export function getRange(start: number, end: number, inc = 1) {
+export function getRange(start: number, end: number, inc?: number) {
+    if (inc === 0 || inc == null) inc = 1
+    if ((start > end && inc > 0) || (start < end && inc < 0)) inc = -inc
+    const increment = inc
     return function* test() {
-        for (let i = start; i <= end; i += inc) {
+        if (start === end) {
+            yield start
+            return
+        }
+        for (let i = start; i <= end; i += increment) {
             yield i
         }
     }
@@ -27,35 +34,6 @@ export function getRange(start: number, end: number, inc = 1) {
 
 export function checkArgMin(block: TemplateType, min: number, key: string) {
     if (block.args.length < min) throw new Error(`"${key}" requires at lest ${min - 1} Arguments (${getPosition(block)})`)
-}
-
-export function setValue(key: string, vars: TempVars, value: any) {
-    const path = key.split(/\][\.\[]|[\.\[\]]/).filter(a => a.length > 0)
-    followSetPath(path, vars, value)
-}
-
-export function getValue(key: string, vars: TempVars) {
-    const path = key.split(/\][\.\[]|[\.\[\]]/).filter(a => a.length > 0)
-    return followGetPath(path, vars)
-}
-
-export function followGetPath([key, ...rest]: string[], obj: any): any {
-    const temp = obj[key]
-    if (rest.length === 0 || temp == null) return temp
-    return followGetPath(rest, temp)
-}
-
-export function followSetPath([key, ...rest]: string[], obj: any, value: any) {
-    if (rest.length === 0) {
-        obj[key] = value
-        return
-    }
-    let temp = obj[key]
-    if (temp == null || typeof temp !== 'object') {
-        temp = {}
-        obj[key] = temp
-    }
-    followSetPath(rest, temp, value)
 }
 
 export function isIterable(val: any): val is Iterable<any> {
@@ -70,4 +48,27 @@ export function getPosition({ position: { lineNum, charNum } }: TemplateType) {
 export function isCondition(val: any): val is 'string' | 'number' | 'boolean' | 'array' {
     if (typeof val !== 'string') return false
     return ['string', 'number', 'boolean', 'array'].includes(val)
+}
+
+export function isInvisibleChar(char: string) {
+    return char === '\n' || char === '\t' || char === '\b' || char === '\r'
+}
+
+export function numBound(min: number, value: number, max: number) {
+    if (value < min) return min
+    if (value > max) return max
+    return value
+}
+
+export class ArrToItr<T> implements Iterable<T> {
+    constructor(public length: number, private func: (index: number) => T) { }
+    *[Symbol.iterator]() {
+        for (let i = 0; i < this.length; i++) {
+            yield this.func(i)
+        }
+    }
+    getAt(index: number) {
+        if (index >= this.length || index < 0) return null
+        return this.func(index)
+    }
 }
