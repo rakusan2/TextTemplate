@@ -10,11 +10,22 @@ export function parseNum(val: string) {
 
 export function getNumber(val: any) {
     if (typeof val === 'number') return val
+    if (typeof val === 'boolean') return +val
     if (typeof val === 'string') {
         const num = parseNum(val)
         if (num != null) return num
     }
     throw new Error('Cannon parse to number')
+}
+export function getBoolean(val: any) {
+    if (typeof val === 'boolean') return val
+    if (typeof val === 'number') return val > 0
+    if (typeof val === 'string' && val.length <= 5) {
+        const str = val.toLowerCase()
+        if (str === 'true') return true
+        if (str === 'false') return false
+    }
+    throw new Error('Cannot parse to boolean')
 }
 
 export function getRange(start: number, end: number, inc?: number) {

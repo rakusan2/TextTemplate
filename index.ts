@@ -2,7 +2,7 @@ import { createReadStream } from 'fs';
 import { Readable } from 'stream'
 import { MissingKeyValueError } from './lib/error';
 import { StringSplitter } from './lib/StringSplitter';
-import { getNumber, getPosition, isCondition, isIterable, ArrToItr } from './lib/tools';
+import { getNumber, getPosition, isCondition, isIterable, ArrToItr, getBoolean } from './lib/tools';
 import { IKeyVal, TempArgument, TemplateParts, TemplateType, TempReturn, TempVars } from './lib/types';
 import { PathObj } from './pathInterpreter';
 export { TempReturn } from './lib/types'
@@ -29,7 +29,7 @@ export * from './lib/error'
 
 <value> = <key> <string> <number> <boolean> <range>(start:end | start:increment:end)
 <condition> = == | < | > | <= | >= | ~
-<operation> = + | - | / | * | %
+<operation> = + | - | / | * | % | && | || | ^
  */
 export function compileFile(path: string, options?: TemplateOptions) {
     return new Promise<TempReturn>((res, rej) => {
@@ -259,19 +259,23 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
         }
     } else if (key === '?') {
         if (block.condition == null) {
-            if (args.length < 2) throw new Error(`? Requires at least 2 arguments (${getPosition(block)})`)
-            if (runCondition(block, vars, options)) {
+            if (args.length < 1) throw new Error(`? Requires at least 1 argument (${getPosition(block)})`)
+            const condition = runCondition(block, vars, options)
+            if (args.length === 1) return condition
+            if (condition) {
                 return getArgumentVal(args[1], vars, options)
-            } else {
+            } else if (args.length >= 3) {
                 return getArgumentVal(args[2], vars, options)
-            }
+            } else return null
         } else {
-            if (args.length < 3) throw new Error(`? Requires at least 3 arguments (${getPosition(block)})`)
-            if (runCondition(block, vars, options)) {
+            if (args.length < 2) throw new Error(`? Requires at least 2 arguments (${getPosition(block)})`)
+            const condition = runCondition(block, vars, options)
+            if (args.length === 2) return condition
+            if (condition) {
                 return getArgumentVal(args[2], vars, options)
-            } else {
+            } else if (args.length >= 4) {
                 return getArgumentVal(args[3], vars, options)
-            }
+            } else return null
         }
     } else if (key === 'itr') {
         return getArgIterable(args, vars, options)
@@ -288,7 +292,7 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
         if (args.length === 1) setKey.setTo(vars, getArgumentVal(args[0], vars, options))
         else setKey.setTo(vars, args.map(a => getArgumentVal(a, vars, options)))
         return null
-    } else if ((reg = /^(?:=\??)?(\+|-|\/|\*|%)$/.exec(key)) != null) {
+    } else if ((reg = /^(?:=\??)?(\+|-|\/|\*|%|&&|\|\||\^)$/.exec(key)) != null) {
         if (args.length === 0) return null
         const opt = reg[1]
         let setKey: PathObj | null = null
@@ -309,8 +313,8 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
             if (isIterable(temp)) argVals = [...temp]
         }
         const allNum = argVals.every(a => typeof a === 'number')
-        const allNumOrStr = allNum || argVals.every(a => (typeof a === 'number') || (typeof a === 'string'))
-        if (!allNumOrStr) throw new Error(`Operation block has invalid type (${getPosition(block)})`)
+        const allNumStrBool = allNum || argVals.every(a => (typeof a === 'number') || (typeof a === 'string') || (typeof a === 'boolean'))
+        if (!allNumStrBool) throw new Error(`Operation block has invalid type (${getPosition(block)})`)
         let res = null
         if (opt === '-') {
             res = argVals.map(getNumber).reduce((acc, a) => acc - a)
@@ -335,6 +339,12 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
                     }
                 }
             }
+        } else if (opt === '&&') {
+            res = argVals.map(getBoolean).reduce((acc, a) => acc && a)
+        } else if (opt === '||') {
+            res = argVals.map(getBoolean).reduce((acc, a) => acc || a)
+        } else if (opt === '^') {
+            res = argVals.map(getBoolean).reduce((acc, a) => acc !== a)
         }
         if (setKey != null) {
             setKey.setTo(vars, res)

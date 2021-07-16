@@ -100,6 +100,9 @@ The following are predefined
 {- ...args} Subtracts followup arguments from first
 {* ...args} Multiplies args
 {/ ...args} Divides args
+{&& ...args} Boolean AND args
+{|| ...args} Boolean OR args
+{^ ...args} Boolean XOR args
 {itr ...args} Coverts args to single iterable object
 {if key} Starts if block if key exists
 {if<condition> left right} Starts if block if condition is true

@@ -195,7 +195,7 @@ function removeKeyExtra(val: TemplateType) {
         val.condition = extra[2]
         val.name = (extra[3] == null || extra[3].length === 0) ? void 0 : new PathObj(extra[3], val.position)
         if (temp === 'if' || temp === 'for') checkArgMin(val, 2, temp)
-        else if (temp === '?') checkArgMin(val, val.condition == null ? 3 : 4, temp)
+        else if (temp === '?') checkArgMin(val, val.condition == null ? 2 : 3, temp)
     }
     else if (key === '+' || key === '-' || key === '/' || key === '*' || key === '%') checkArgMin(val, 2, key)
     else if (key === '=' || key === '=?') checkArgMin(val, 3, key)
