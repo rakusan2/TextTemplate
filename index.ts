@@ -1,7 +1,7 @@
 import { createReadStream } from 'fs';
 import { Readable } from 'stream'
 import { MissingKeyValueError } from './lib/error';
-import { StringSplitter } from './lib/StringSpliter';
+import { StringSplitter } from './lib/StringSplitter';
 import { getNumber, getPosition, isCondition, isIterable, ArrToItr } from './lib/tools';
 import { IKeyVal, TempArgument, TemplateParts, TemplateType, TempReturn, TempVars } from './lib/types';
 import { PathObj } from './pathInterpreter';
