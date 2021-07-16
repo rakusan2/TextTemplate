@@ -1,4 +1,4 @@
-import { render, compile, MissingKeyValueError, loadFile } from '..'
+import { render, compile, MissingKeyValueError, compileFile } from '..'
 import { strictEqual, throws, doesNotReject } from 'assert'
 import { readdir } from 'fs/promises'
 import path from 'path'
@@ -52,7 +52,7 @@ doesNotReject(async () => {
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         console.log('Testing', file.name)
-        const fun = await loadFile(file.fullPath)
+        const fun = await compileFile(file.fullPath)
         fun({ name: 'dog', email: 'cat', fwdAdd: 'add', fwdRm: 'rm' })
     }
 }, 'Test Files')

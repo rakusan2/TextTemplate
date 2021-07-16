@@ -31,7 +31,7 @@ export * from './lib/error'
 <condition> = == | < | > | <= | >= | ~
 <operation> = + | - | / | * | %
  */
-export function loadFile(path: string, options?: TemplateOptions) {
+export function compileFile(path: string, options?: TemplateOptions) {
     return new Promise<TempReturn>((res, rej) => {
         const ss = new StringSplitter(options?.filePath ?? path)
         createReadStream(path, 'utf8')
@@ -88,7 +88,7 @@ export interface TemplateOptions {
      * 
      * Default: `true`
      */
-    throwOnMissing?: boolean
+    nullOnMissing?: boolean
     /** Set `this` to Vars */
     setFunctionThis?: boolean
     /** Add vars property to return of compile */
@@ -274,9 +274,7 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
             }
         }
     } else if (key === 'itr') {
-        if (args.length > 0) {
-            return getArgIterable(args, vars, options)
-        }
+        return getArgIterable(args, vars, options)
     } else if (key === '=' || key === '=?') {
         if (args.length <= 1) return null
         const arg0 = args.shift()
@@ -350,7 +348,7 @@ function runBlock(block: TemplateType, vars: TempVars, options: TemplateOptions)
                 if (args.length === 1) return getArgumentVal(args[0], vars, options)
                 return args.map(a => getArgumentVal(a, vars, options))
             }
-            if (options.throwOnMissing !== false) throw new MissingKeyValueError(arg0)
+            if (options.nullOnMissing !== true) throw new MissingKeyValueError(arg0)
             return null
         }
         if (typeof val === 'function') {
@@ -368,7 +366,7 @@ function getArgumentVal(arg: TempArgument, vars: TempVars, options: TemplateOpti
     if (arg == null) return null
     if (arg instanceof PathObj) {
         const res = arg.getFrom(vars)
-        if (typeof res === 'undefined' && options.throwOnMissing) throw new MissingKeyValueError(arg)
+        if (typeof res === 'undefined' && options.nullOnMissing !== true) throw new MissingKeyValueError(arg)
         return res
     }
     if (isIterable(arg)) return arg
@@ -403,7 +401,7 @@ export function getArgIterable(args: TempArgument[], vars: TempVars, options: Te
         if (typeof item !== 'undefined') return item
         const arg = args[i]
         const temp = arr[i] = getArgumentVal(arg, instance, options)
-        if ((typeof arg === 'string') && (typeof temp === 'undefined') && options.throwOnMissing !== false) {
+        if ((typeof arg === 'string') && (typeof temp === 'undefined') && options.nullOnMissing !== true) {
             throw new MissingKeyValueError(new PathObj(arg, { charNum: -1, lineNum: -1 }))
         }
         return temp
